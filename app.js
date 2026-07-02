@@ -942,6 +942,8 @@ function collectFormData() {
     raceDate: String(formData.get("raceDate") || ""),
     targetWeeklyHours: Number(formData.get("targetWeeklyHours")) || null,
     goalText: String(formData.get("goalText") || "").trim(),
+    longBikeDay: String(formData.get("longBikeDay") || "").trim(),
+    longRunDay: String(formData.get("longRunDay") || "").trim(),
     earliestTraining: formData.get("earliestTraining") || "06:00",
     latestTraining: formData.get("latestTraining") || "21:30",
     constraints: String(formData.get("constraints") || "").trim(),
@@ -984,6 +986,16 @@ function validateAthlete(athlete) {
 
   if (!Number.isFinite(athlete.latitude) || !Number.isFinite(athlete.longitude)) {
     return "Inserisci latitudine e longitudine valide per il calcolo della luce diurna.";
+  }
+
+  const availableDayNames = athlete.days.filter((day) => day.available).map((day) => day.day);
+
+  if (athlete.longBikeDay && !availableDayNames.includes(athlete.longBikeDay)) {
+    return `Il giorno scelto per il lungo bici (${DAY_LABELS[athlete.longBikeDay]}) non e' disponibile.`;
+  }
+
+  if (athlete.longRunDay && !availableDayNames.includes(athlete.longRunDay)) {
+    return `Il giorno scelto per il lungo corsa (${DAY_LABELS[athlete.longRunDay]}) non e' disponibile.`;
   }
 
   return null;
@@ -1218,7 +1230,7 @@ function deriveWeeklyTargetsKm(weekHours, baseline, performance) {
 function buildWeekSchedule(athlete, performance, planConfig, weekStart, weekIndex, phase, weekVariation, weekHours, weeklyTargets) {
   const calendarDays = buildCalendarDays(athlete, weekStart, planConfig);
   const availableDays = calendarDays.filter((day) => day.available);
-  const priorities = buildPriorityPools(availableDays);
+  const priorities = buildPriorityPools(availableDays, athlete);
   const workoutTypes = resolveWorkoutTypes(phase.bucket, athlete.focusDistance, performance, weekVariation);
   const blueprints = buildSessionBlueprints(
     weeklyTargets,
@@ -1304,7 +1316,7 @@ function buildCalendarDays(athlete, weekStart, planConfig) {
   return days;
 }
 
-function buildPriorityPools(availableDays) {
+function buildPriorityPools(availableDays, athlete) {
   const allKeys = availableDays.map((day) => day.key);
   const sortedByLong = [...availableDays].sort((left, right) => {
     const pref = preferenceScore(left.preference) - preferenceScore(right.preference);
@@ -1317,6 +1329,8 @@ function buildPriorityPools(availableDays) {
   return {
     all: allKeys,
     longDays: sortedByLong.map((day) => day.key),
+    bikeLong: buildLongPriorityKeys(availableDays, athlete.longBikeDay, sortedByLong),
+    runLong: buildLongPriorityKeys(availableDays, athlete.longRunDay, sortedByLong),
     bikePrimary: sortByPreference(availableDays, ["evening", "flexible", "long", "early"]).map((day) => day.key),
     bikeSecondary: sortByPreference(availableDays, ["flexible", "evening", "early", "long"]).map((day) => day.key),
     runPrimary: sortByPreference(availableDays, ["early", "flexible", "evening", "long"]).map((day) => day.key),
@@ -1421,8 +1435,8 @@ function buildSessionBlueprints(weeklyTargets, workoutTypes, phase, availableDay
   const runSecondaryKm = roundDistanceForSport("run", Math.max(0, weeklyTargets.runKm - runLongKm - runPrimaryKm - runBrickKm));
 
   const blueprints = [
-    { id: `bike-long-${cycleIndex}`, sport: "bike", type: "long", distanceKm: bikeLongKm, priority: "longDays", longSession: true },
-    { id: `run-long-${cycleIndex}`, sport: "run", type: "long", distanceKm: runLongKm, priority: "longDays", longSession: true, avoidBlueprintId: `bike-long-${cycleIndex}` },
+    { id: `bike-long-${cycleIndex}`, sport: "bike", type: "long", distanceKm: bikeLongKm, priority: "bikeLong", longSession: true },
+    { id: `run-long-${cycleIndex}`, sport: "run", type: "long", distanceKm: runLongKm, priority: "runLong", longSession: true, avoidBlueprintId: `bike-long-${cycleIndex}` },
     { id: `bike-primary-${cycleIndex}`, sport: "bike", type: workoutTypes.bikePrimary, distanceKm: bikePrimaryKm, priority: "bikePrimary" },
     { id: `run-primary-${cycleIndex}`, sport: "run", type: workoutTypes.runPrimary, distanceKm: runPrimaryKm, priority: "runPrimary" },
     { id: `swim-primary-${cycleIndex}`, sport: "swim", type: workoutTypes.swimPrimary, distanceKm: swimPrimaryKm, priority: "swimPrimary" },
@@ -2414,6 +2428,8 @@ function loadDemoData() {
     raceDate: formatDateInput(addDays(new Date(), 84)),
     targetWeeklyHours: 8.5,
     goalText: "Arrivare solida in bici e correre bene l'ultimo 10 km",
+    longBikeDay: "Saturday",
+    longRunDay: "Sunday",
     earliestTraining: "06:00",
     latestTraining: "21:00",
     constraints: "Piscina disponibile martedi' e giovedi'.",
@@ -2990,6 +3006,13 @@ function averageWeekTotals(weeks) {
     bikeKm: roundDistanceForSport("bike", average(weeks.map((week) => week.totals.bikeKm))),
     runKm: roundDistanceForSport("run", average(weeks.map((week) => week.totals.runKm))),
   };
+}
+
+function buildLongPriorityKeys(days, preferredDayName, sortedByLong) {
+  const preferredDay = preferredDayName ? days.find((day) => day.dayName === preferredDayName) : null;
+  const preferredKey = preferredDay?.key ? [preferredDay.key] : [];
+  const fallback = (sortedByLong || days).map((day) => day.key);
+  return [...new Set([...preferredKey, ...fallback])];
 }
 
 function sortByPreference(days, order) {
