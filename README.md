@@ -57,3 +57,6 @@ Note:
 - Il workflow pubblica solo i file utili all'app e non include gli screenshot di test.
 - GitHub Pages e' gratis per repository pubblici.
 - Il sito puo' impiegare qualche minuto a comparire dopo il primo push.
+
+
+_Trigger GitHub Pages rebuild after enabling branch publish._
