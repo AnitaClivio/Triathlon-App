@@ -8,15 +8,6 @@ MVP statico per raccogliere i dati di un atleta e generare un blocco di allename
 - vincoli di luce diurna per bici e corsa;
 - suggerimenti di route template per i lunghi.
 
-## Avvio locale
-
-Apri `index.html` direttamente nel browser oppure avvia un server statico:
-
-```bash
-python3 -m http.server 8080
-```
-
-Poi visita `http://localhost:8080`.
 
 ## Note
 
