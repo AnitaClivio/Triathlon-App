@@ -13,7 +13,56 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="page-shell">
+    <section id="auth-gate" class="auth-gate">
+      <div class="auth-card">
+        <div class="section-heading">
+          <p class="section-kicker">Accesso locale</p>
+          <h2>Entra oppure crea il tuo profilo atleta</h2>
+        </div>
+        <p class="auth-copy">
+          Questo account resta su questo dispositivo: salva profilo, piani, spunte completate e contatore km.
+          La verifica mail in questa versione e' locale: conferma il doppio inserimento dell'indirizzo.
+        </p>
+        <p id="auth-feedback" class="auth-feedback"></p>
+        <div class="auth-grid">
+          <form id="login-form" class="auth-form">
+            <h3>Accedi</h3>
+            <label>
+              Email
+              <input type="email" name="loginEmail" placeholder="anita@email.com" autocomplete="email" required />
+            </label>
+            <label>
+              PIN locale
+              <input type="password" name="loginPin" inputmode="numeric" minlength="4" autocomplete="current-password" placeholder="1234" required />
+            </label>
+            <button type="submit" class="primary-button">Entra</button>
+          </form>
+
+          <form id="create-account-form" class="auth-form">
+            <h3>Crea account</h3>
+            <label>
+              Nome profilo
+              <input type="text" name="createName" placeholder="Anita Clivio" autocomplete="name" required />
+            </label>
+            <label>
+              Email
+              <input type="email" name="createEmail" placeholder="anita@email.com" autocomplete="email" required />
+            </label>
+            <label>
+              Conferma email
+              <input type="email" name="createEmailConfirm" placeholder="anita@email.com" autocomplete="email" required />
+            </label>
+            <label>
+              PIN locale
+              <input type="password" name="createPin" inputmode="numeric" minlength="4" autocomplete="new-password" placeholder="1234" required />
+            </label>
+            <button type="submit" class="secondary-button">Crea e salva</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <div id="app-shell" class="page-shell hidden">
       <header class="hero">
         <div class="hero-copy">
           <p class="eyebrow">Triathlon Planner</p>
@@ -38,267 +87,348 @@
         </div>
       </header>
 
-      <main class="layout">
-        <section class="panel form-panel">
-          <div class="section-heading">
-            <p class="section-kicker">Intake atleta</p>
-            <h2>Profilo, obiettivo e disponibilita'</h2>
-          </div>
+      <section id="account-strip" class="account-strip hidden">
+        <div>
+          <p class="section-kicker">Memoria atleta</p>
+          <h3 id="account-name">Profilo locale</h3>
+          <p id="account-copy" class="auth-copy">Dati e progressi salvati su questo dispositivo.</p>
+        </div>
+        <div class="account-strip-actions">
+          <button type="button" class="secondary-button" id="reload-profile-button">Ricarica dati salvati</button>
+          <button type="button" class="secondary-button" id="logout-button">Esci</button>
+        </div>
+      </section>
 
-          <form id="athlete-form">
-            <fieldset>
-              <legend>Generalita'</legend>
-              <div class="form-grid two-col">
-                <label>
-                  Nome atleta
-                  <input type="text" name="fullName" placeholder="Es. Anita Clivio" required />
-                </label>
-                <label>
-                  Eta'
-                  <input type="number" name="age" min="14" max="90" placeholder="34" required />
-                </label>
-                <label>
-                  Sesso
-                  <select name="sex" required>
-                    <option value="">Seleziona</option>
-                    <option value="female">Donna</option>
-                    <option value="male">Uomo</option>
-                    <option value="non-binary">Non-binary</option>
-                    <option value="prefer-not">Preferisco non dirlo</option>
-                  </select>
-                </label>
-                <label>
-                  Altezza (cm)
-                  <input type="number" name="heightCm" min="120" max="230" placeholder="170" />
-                </label>
-                <label>
-                  Peso (kg)
-                  <input type="number" name="weightKg" min="35" max="180" step="0.1" placeholder="62" />
-                </label>
-                <label>
-                  Citta' base
-                  <input type="text" name="city" placeholder="Milano" />
-                </label>
-                <label>
-                  Latitudine
-                  <input type="number" name="latitude" step="0.0001" placeholder="45.4642" required />
-                </label>
-                <label>
-                  Longitudine
-                  <input type="number" name="longitude" step="0.0001" placeholder="9.1900" required />
-                </label>
+      <nav class="app-nav" aria-label="Navigazione app">
+        <button type="button" class="nav-pill is-active" data-nav-view="home">Home</button>
+        <button type="button" class="nav-pill" data-nav-view="plan">Piano</button>
+        <button type="button" class="nav-pill" data-nav-view="archive">Archivio</button>
+        <button type="button" class="nav-pill" data-nav-view="profile">Profilo</button>
+      </nav>
+
+      <main class="app-views">
+        <section class="app-view is-active" data-app-view="home">
+          <div class="dashboard-grid">
+            <section class="panel dashboard-card dashboard-hero-card">
+              <div class="section-heading">
+                <p class="section-kicker">Home</p>
+                <h2 id="home-welcome-heading">Benvenuta nel tuo planner</h2>
               </div>
-              <div class="inline-actions">
-                <button type="button" class="secondary-button" id="location-button">
-                  Usa la mia posizione
-                </button>
+              <p id="home-account-summary" class="dashboard-copy">
+                Accedi o crea un account per vedere profilo, piano attivo e progressi salvati.
+              </p>
+              <div id="home-active-plan" class="dashboard-highlight"></div>
+              <div class="dashboard-actions">
+                <button type="button" class="primary-button" id="home-go-plan-button">Apri piano attivo</button>
+                <button type="button" class="secondary-button" id="home-go-profile-button">Apri profilo</button>
+                <button type="button" class="secondary-button" id="home-go-archive-button">Apri archivio</button>
               </div>
-            </fieldset>
-
-            <fieldset>
-              <legend>Prestazioni attuali</legend>
-              <div class="form-grid three-col">
-                <label>
-                  Nuoto 400 m
-                  <input type="text" name="swim400" placeholder="08:10" />
-                </label>
-                <label>
-                  Nuoto 1500 m
-                  <input type="text" name="swim1500" placeholder="31:00" />
-                </label>
-                <label>
-                  Corsa 5 km
-                  <input type="text" name="run5k" placeholder="24:30" />
-                </label>
-                <label>
-                  Corsa 10 km
-                  <input type="text" name="run10k" placeholder="51:00" />
-                </label>
-                <label>
-                  Mezza maratona
-                  <input type="text" name="run21k" placeholder="01:52:00" />
-                </label>
-                <label>
-                  Maratona
-                  <input type="text" name="run42k" placeholder="04:05:00" />
-                </label>
-                <label>
-                  Bici 20 km
-                  <input type="text" name="bike20k" placeholder="00:40:00" />
-                </label>
-                <label>
-                  Bici 40 km
-                  <input type="text" name="bike40k" placeholder="01:28:00" />
-                </label>
-              </div>
-            </fieldset>
-
-            <fieldset>
-              <legend>Programma</legend>
-              <div class="form-grid two-col">
-                <label>
-                  Modalita' piano
-                  <select name="planMode" id="plan-mode" required>
-                    <option value="race" selected>Preparazione gara</option>
-                    <option value="maintenance">Nessuna gara, mantenimento</option>
-                  </select>
-                </label>
-                <label>
-                  Distanza / focus di riferimento
-                  <select name="focusDistance" required>
-                    <option value="sprint">Sprint</option>
-                    <option value="olympic" selected>Olimpico</option>
-                    <option value="70.3">70.3</option>
-                    <option value="ironman">Ironman</option>
-                    <option value="custom">Custom endurance</option>
-                  </select>
-                </label>
-                <label>
-                  Quando vuoi partire?
-                  <select name="startMode" id="start-mode" required>
-                    <option value="today" selected>Da oggi</option>
-                    <option value="custom">In una data futura</option>
-                  </select>
-                </label>
-                <label id="start-date-wrapper" class="hidden-field">
-                  Data di partenza
-                  <input type="date" name="startDate" />
-                </label>
-                <label data-race-only>
-                  Gara / evento
-                  <input type="text" name="eventName" placeholder="Triathlon Olimpico di Como" />
-                </label>
-                <label data-race-only>
-                  Data gara finale
-                  <input type="date" name="raceDate" />
-                </label>
-                <label>
-                  Ore target a settimana
-                  <input type="number" name="targetWeeklyHours" min="3" max="20" step="0.5" placeholder="8.5" />
-                </label>
-                <label>
-                  Obiettivo principale
-                  <input
-                    type="text"
-                    name="goalText"
-                    placeholder="Correre bene il finale / migliorare la bici / stare in mantenimento"
-                  />
-                </label>
-              </div>
-              <div id="plan-preview" class="plan-preview"></div>
-            </fieldset>
-
-            <fieldset>
-              <legend>Disponibilita' e lavoro</legend>
-              <div class="form-grid three-col">
-                <label>
-                  Inizio allenamento piu' presto
-                  <input type="time" name="earliestTraining" value="06:00" />
-                </label>
-                <label>
-                  Fine allenamento piu' tardi
-                  <input type="time" name="latestTraining" value="21:30" />
-                </label>
-                <label>
-                  Note / limiti
-                  <input
-                    type="text"
-                    name="constraints"
-                    placeholder="Piscina solo martedi' e giovedi', stop alle 20:30"
-                  />
-                </label>
-              </div>
-
-              <div class="availability-header">
-                <div>
-                  <p class="section-kicker">Settimana reale</p>
-                  <h3>Giorni disponibili e orari di lavoro</h3>
-                </div>
-                <p class="mini-note">
-                  Se un giorno e' libero lascia vuoti gli orari di lavoro.
-                </p>
-              </div>
-
-              <div id="availability-grid" class="availability-grid"></div>
-            </fieldset>
-
-            <div class="actions">
-              <button type="submit" class="primary-button">Genera piano</button>
-              <button type="button" class="secondary-button" id="demo-button">Carica esempio</button>
-            </div>
-          </form>
-        </section>
-
-        <section class="panel results-panel">
-          <div class="section-heading">
-            <p class="section-kicker">Output</p>
-            <h2>Piano allenamenti</h2>
-          </div>
-
-          <div id="empty-state" class="empty-state">
-            Compila il profilo atleta e genera un piano: qui troverai un ciclo rolling con una
-            settimana alla volta, allenamenti in km e una scheda apribile per ogni sessione.
-          </div>
-
-          <div id="results" class="results hidden">
-            <div id="summary-cards" class="summary-cards"></div>
-            <div id="coach-note" class="coach-note"></div>
-            <div id="cycle-summary" class="cycle-summary"></div>
-
-            <div class="rolling-controls">
-              <button type="button" class="secondary-button" id="prev-week-button">Settimana precedente</button>
-              <div id="week-indicator" class="week-indicator"></div>
-              <button type="button" class="secondary-button" id="next-week-button">Settimana successiva</button>
-            </div>
-
-            <div class="result-actions">
-              <button type="button" class="primary-button" id="save-plan-button">Salva piano corrente</button>
-              <p id="save-feedback" class="save-feedback"></p>
-            </div>
-
-            <section class="device-stack-card">
-              <div class="section-heading small">
-                <p class="section-kicker">Telefono & Garmin</p>
-                <h3>App tascabile e sync device</h3>
-              </div>
-              <div class="device-grid">
-                <article class="device-card">
-                  <span class="device-label">App telefono</span>
-                  <h4>Installabile come web app</h4>
-                  <p id="install-hint" class="device-copy">Aprila da iPhone o Android e aggiungila alla schermata Home.</p>
-                </article>
-                <article class="device-card">
-                  <span class="device-label">Garmin</span>
-                  <div id="garmin-status" class="device-copy"></div>
-                </article>
-              </div>
-              <div class="device-actions">
-                <button type="button" class="primary-button" id="install-app-button">Installa sul telefono</button>
-                <button type="button" class="secondary-button" id="download-garmin-draft-button">Scarica bozza sync Garmin</button>
-              </div>
-              <p id="device-feedback" class="device-feedback"></p>
             </section>
 
-            <div id="weekly-plan" class="weekly-plan"></div>
+            <div class="dashboard-stack">
+              <section class="panel dashboard-card">
+                <p class="section-kicker">Mail</p>
+                <h3>Verifica account</h3>
+                <p id="home-email-status" class="dashboard-copy">La verifica mail verra' mostrata qui.</p>
+              </section>
 
-            <div class="routes-block">
-              <div class="section-heading small">
-                <p class="section-kicker">Route & venue</p>
-                <h3>Indicazioni della settimana corrente</h3>
-              </div>
-              <div id="route-suggestions" class="route-suggestions"></div>
+              <section class="panel dashboard-card">
+                <p class="section-kicker">Archivio</p>
+                <h3>Piani salvati</h3>
+                <p id="home-library-summary" class="dashboard-copy">Qui vedrai quanti piani hai conservato.</p>
+              </section>
+
+              <section class="panel dashboard-card">
+                <p class="section-kicker">Progressi</p>
+                <h3>Km completati</h3>
+                <p id="home-progress-summary" class="dashboard-copy">Qui vedrai le sessioni completate e i km accumulati.</p>
+              </section>
             </div>
           </div>
+        </section>
 
-          <section class="saved-plans-block">
-            <div class="section-heading small">
+        <section class="app-view" data-app-view="profile">
+          <div class="layout">
+            <section class="panel form-panel">
+              <div class="section-heading">
+                <p class="section-kicker">Intake atleta</p>
+                <h2>Profilo, obiettivo e disponibilita'</h2>
+              </div>
+
+              <form id="athlete-form">
+                <fieldset>
+                  <legend>Generalita'</legend>
+                  <div class="form-grid two-col">
+                    <label>
+                      Nome atleta
+                      <input type="text" name="fullName" placeholder="Es. Anita Clivio" required />
+                    </label>
+                    <label>
+                      Eta'
+                      <input type="number" name="age" min="14" max="90" placeholder="34" required />
+                    </label>
+                    <label>
+                      Sesso
+                      <select name="sex" required>
+                        <option value="">Seleziona</option>
+                        <option value="female">Donna</option>
+                        <option value="male">Uomo</option>
+                        <option value="non-binary">Non-binary</option>
+                        <option value="prefer-not">Preferisco non dirlo</option>
+                      </select>
+                    </label>
+                    <label>
+                      Altezza (cm)
+                      <input type="number" name="heightCm" min="120" max="230" placeholder="170" />
+                    </label>
+                    <label>
+                      Peso (kg)
+                      <input type="number" name="weightKg" min="35" max="180" step="0.1" placeholder="62" />
+                    </label>
+                    <label>
+                      Citta' base
+                      <input type="text" name="city" placeholder="Milano" />
+                    </label>
+                    <label>
+                      Latitudine
+                      <input type="number" name="latitude" step="0.0001" placeholder="45.4642" required />
+                    </label>
+                    <label>
+                      Longitudine
+                      <input type="number" name="longitude" step="0.0001" placeholder="9.1900" required />
+                    </label>
+                  </div>
+                  <div class="inline-actions">
+                    <button type="button" class="secondary-button" id="location-button">
+                      Usa la mia posizione
+                    </button>
+                  </div>
+                </fieldset>
+
+                <fieldset>
+                  <legend>Prestazioni attuali</legend>
+                  <div class="form-grid three-col">
+                    <label>
+                      Nuoto 400 m
+                      <input type="text" name="swim400" placeholder="08:10" />
+                    </label>
+                    <label>
+                      Nuoto 1500 m
+                      <input type="text" name="swim1500" placeholder="31:00" />
+                    </label>
+                    <label>
+                      Corsa 5 km
+                      <input type="text" name="run5k" placeholder="24:30" />
+                    </label>
+                    <label>
+                      Corsa 10 km
+                      <input type="text" name="run10k" placeholder="51:00" />
+                    </label>
+                    <label>
+                      Mezza maratona
+                      <input type="text" name="run21k" placeholder="01:52:00" />
+                    </label>
+                    <label>
+                      Maratona
+                      <input type="text" name="run42k" placeholder="04:05:00" />
+                    </label>
+                    <label>
+                      Bici 20 km
+                      <input type="text" name="bike20k" placeholder="00:40:00" />
+                    </label>
+                    <label>
+                      Bici 40 km
+                      <input type="text" name="bike40k" placeholder="01:28:00" />
+                    </label>
+                  </div>
+                </fieldset>
+
+                <fieldset>
+                  <legend>Programma</legend>
+                  <div class="form-grid two-col">
+                    <label>
+                      Modalita' piano
+                      <select name="planMode" id="plan-mode" required>
+                        <option value="race" selected>Preparazione gara</option>
+                        <option value="maintenance">Nessuna gara, mantenimento</option>
+                      </select>
+                    </label>
+                    <label>
+                      Distanza / focus di riferimento
+                      <select name="focusDistance" required>
+                        <option value="sprint">Sprint</option>
+                        <option value="olympic" selected>Olimpico</option>
+                        <option value="70.3">70.3</option>
+                        <option value="ironman">Ironman</option>
+                        <option value="custom">Custom endurance</option>
+                      </select>
+                    </label>
+                    <label>
+                      Quando vuoi partire?
+                      <select name="startMode" id="start-mode" required>
+                        <option value="today" selected>Da oggi</option>
+                        <option value="custom">In una data futura</option>
+                      </select>
+                    </label>
+                    <label id="start-date-wrapper" class="hidden-field">
+                      Data di partenza
+                      <input type="date" name="startDate" />
+                    </label>
+                    <label data-race-only>
+                      Gara / evento
+                      <input type="text" name="eventName" placeholder="Triathlon Olimpico di Como" />
+                    </label>
+                    <label data-race-only>
+                      Data gara finale
+                      <input type="date" name="raceDate" />
+                    </label>
+                    <label>
+                      Ore target a settimana
+                      <input type="number" name="targetWeeklyHours" min="3" max="20" step="0.5" placeholder="8.5" />
+                    </label>
+                    <label>
+                      Obiettivo principale
+                      <input
+                        type="text"
+                        name="goalText"
+                        placeholder="Correre bene il finale / migliorare la bici / stare in mantenimento"
+                      />
+                    </label>
+                  </div>
+                  <div id="plan-preview" class="plan-preview"></div>
+                </fieldset>
+
+                <fieldset>
+                  <legend>Disponibilita' e lavoro</legend>
+                  <div class="form-grid three-col">
+                    <label>
+                      Inizio allenamento piu' presto
+                      <input type="time" name="earliestTraining" value="06:00" />
+                    </label>
+                    <label>
+                      Fine allenamento piu' tardi
+                      <input type="time" name="latestTraining" value="21:30" />
+                    </label>
+                    <label>
+                      Note / limiti
+                      <input
+                        type="text"
+                        name="constraints"
+                        placeholder="Piscina solo martedi' e giovedi', stop alle 20:30"
+                      />
+                    </label>
+                  </div>
+
+                  <div class="availability-header">
+                    <div>
+                      <p class="section-kicker">Settimana reale</p>
+                      <h3>Giorni disponibili e orari di lavoro</h3>
+                    </div>
+                    <p class="mini-note">
+                      Se un giorno e' libero lascia vuoti gli orari di lavoro.
+                    </p>
+                  </div>
+
+                  <div id="availability-grid" class="availability-grid"></div>
+                </fieldset>
+
+                <div class="actions">
+                  <button type="submit" class="primary-button">Genera piano</button>
+                  <button type="button" class="secondary-button" id="demo-button">Carica esempio</button>
+                </div>
+              </form>
+            </section>
+
+            <section class="panel profile-side-panel">
+              <div class="section-heading small">
+                <p class="section-kicker">Account</p>
+                <h3>Memoria e verifica</h3>
+              </div>
+              <div id="profile-account-status" class="status-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="app-view" data-app-view="plan">
+          <section class="panel results-panel">
+            <div class="section-heading">
+              <p class="section-kicker">Output</p>
+              <h2>Piano allenamenti</h2>
+            </div>
+
+            <div id="empty-state" class="empty-state">
+              Compila il profilo atleta e genera un piano: qui troverai un ciclo rolling con una
+              settimana alla volta, allenamenti in km e una scheda apribile per ogni sessione.
+            </div>
+
+            <div id="results" class="results hidden">
+              <div id="summary-cards" class="summary-cards"></div>
+              <div id="coach-note" class="coach-note"></div>
+              <div id="cycle-summary" class="cycle-summary"></div>
+
+              <div class="rolling-controls">
+                <button type="button" class="secondary-button" id="prev-week-button">Settimana precedente</button>
+                <div id="week-indicator" class="week-indicator"></div>
+                <button type="button" class="secondary-button" id="next-week-button">Settimana successiva</button>
+              </div>
+
+              <div class="result-actions">
+                <button type="button" class="primary-button" id="save-plan-button">Salva in archivio</button>
+                <p id="save-feedback" class="save-feedback"></p>
+              </div>
+
+              <section class="device-stack-card">
+                <div class="section-heading small">
+                  <p class="section-kicker">Telefono & Garmin</p>
+                  <h3>App tascabile e sync device</h3>
+                </div>
+                <div class="device-grid">
+                  <article class="device-card">
+                    <span class="device-label">App telefono</span>
+                    <h4>Installabile come web app</h4>
+                    <p id="install-hint" class="device-copy">Aprila da iPhone o Android e aggiungila alla schermata Home.</p>
+                  </article>
+                  <article class="device-card">
+                    <span class="device-label">Garmin</span>
+                    <div id="garmin-status" class="device-copy"></div>
+                  </article>
+                </div>
+                <div class="device-actions">
+                  <button type="button" class="primary-button" id="install-app-button">Installa sul telefono</button>
+                  <button type="button" class="secondary-button" id="download-garmin-draft-button">Scarica bozza sync Garmin</button>
+                </div>
+                <p id="device-feedback" class="device-feedback"></p>
+              </section>
+
+              <div id="weekly-plan" class="weekly-plan"></div>
+
+              <div class="routes-block">
+                <div class="section-heading small">
+                  <p class="section-kicker">Route & venue</p>
+                  <h3>Indicazioni della settimana corrente</h3>
+                </div>
+                <div id="route-suggestions" class="route-suggestions"></div>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <section class="app-view" data-app-view="archive">
+          <section class="panel archive-panel">
+            <div class="section-heading">
               <p class="section-kicker">Archivio</p>
-              <h3>Piani salvati</h3>
+              <h2>Piani salvati</h2>
             </div>
-            <div id="saved-plans-empty" class="empty-state saved-empty-state">
-              Nessun piano salvato per ora. Generane uno e usa il pulsante di salvataggio per poterlo consultare in seguito.
-            </div>
-            <div id="saved-plans-list" class="saved-plans-list"></div>
+            <p class="dashboard-copy">
+              Qui ritrovi i piani archiviati: puoi riaprirli, ricaricarli nel profilo oppure eliminarli.
+            </p>
+
+            <section class="saved-plans-block">
+              <div id="saved-plans-empty" class="empty-state saved-empty-state">
+                Nessun piano salvato per ora. Generane uno e usa il pulsante di salvataggio per poterlo consultare in seguito.
+              </div>
+              <div id="saved-plans-list" class="saved-plans-list"></div>
+            </section>
           </section>
         </section>
       </main>

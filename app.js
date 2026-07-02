@@ -37,6 +37,8 @@ const DISTANCE_PROFILES = {
 };
 
 const STORAGE_KEY = "triathlonPlanner.savedPlans.v1";
+const ACCOUNTS_STORAGE_KEY = "triathlonPlanner.accounts.v1";
+const AUTH_SESSION_KEY = "triathlonPlanner.authSession.v1";
 
 const SESSION_LIBRARY = {
   swim: {
@@ -69,11 +71,24 @@ const state = {
   currentWeekIndex: 0,
   sessionLookup: new Map(),
   currentSavedPlanId: null,
+  currentAccountEmail: null,
   feedbackTimeoutId: null,
   deviceFeedbackTimeoutId: null,
+  authFeedbackTimeoutId: null,
   deferredInstallPrompt: null,
+  currentView: "home",
 };
 
+const authGate = document.querySelector("#auth-gate");
+const appShell = document.querySelector("#app-shell");
+const createAccountForm = document.querySelector("#create-account-form");
+const loginForm = document.querySelector("#login-form");
+const authFeedback = document.querySelector("#auth-feedback");
+const accountStrip = document.querySelector("#account-strip");
+const accountName = document.querySelector("#account-name");
+const accountCopy = document.querySelector("#account-copy");
+const reloadProfileButton = document.querySelector("#reload-profile-button");
+const logoutButton = document.querySelector("#logout-button");
 const form = document.querySelector("#athlete-form");
 const availabilityGrid = document.querySelector("#availability-grid");
 const template = document.querySelector("#day-row-template");
@@ -108,17 +123,32 @@ const downloadGarminDraftButton = document.querySelector("#download-garmin-draft
 const installHint = document.querySelector("#install-hint");
 const garminStatus = document.querySelector("#garmin-status");
 const deviceFeedback = document.querySelector("#device-feedback");
+const navButtons = Array.from(document.querySelectorAll("[data-nav-view]"));
+const appViews = Array.from(document.querySelectorAll("[data-app-view]"));
+const homeWelcomeHeading = document.querySelector("#home-welcome-heading");
+const homeAccountSummary = document.querySelector("#home-account-summary");
+const homeActivePlan = document.querySelector("#home-active-plan");
+const homeEmailStatus = document.querySelector("#home-email-status");
+const homeLibrarySummary = document.querySelector("#home-library-summary");
+const homeProgressSummary = document.querySelector("#home-progress-summary");
+const profileAccountStatus = document.querySelector("#profile-account-status");
+const homeGoPlanButton = document.querySelector("#home-go-plan-button");
+const homeGoProfileButton = document.querySelector("#home-go-profile-button");
+const homeGoArchiveButton = document.querySelector("#home-go-archive-button");
 
 buildAvailabilityRows();
 attachEvents();
 updateStartModeUI();
 updatePlanModeUI();
 updatePlanPreview();
+switchView("home", false);
 renderSavedPlansLibrary();
 updateSaveButtonState();
+renderHomeDashboard();
 renderDeviceReadiness();
 registerServiceWorker();
 bindInstallPromptEvents();
+bootstrapAccountSession();
 
 function attachEvents() {
   form.addEventListener("submit", (event) => {
@@ -132,13 +162,23 @@ function attachEvents() {
     }
 
     const plan = generatePlan(athlete);
-    state.plan = plan;
-    state.currentWeekIndex = 0;
-    state.currentSavedPlanId = null;
-    rebuildSessionLookup(plan);
-    closeSessionModal();
-    renderPlan(plan);
-    showSaveFeedback("Piano pronto. Ora puoi salvarlo nell'archivio locale.");
+    const formSnapshot = captureFormSnapshot();
+    mountPlan(plan, { savedPlanId: null, currentWeekIndex: 0 });
+    persistCurrentProfileSnapshot(formSnapshot);
+    persistActivePlanState({
+      label: buildActivePlanLabel(plan),
+      savedPlanId: null,
+      currentWeekIndex: 0,
+      formSnapshot,
+    });
+    switchView("plan");
+    showSaveFeedback("Piano pronto e memorizzato in locale. Se vuoi conservarlo anche in archivio usa il salvataggio dedicato.");
+  });
+
+  form.addEventListener("change", () => {
+    if (state.currentAccountEmail) {
+      persistCurrentProfileSnapshot(captureFormSnapshot());
+    }
   });
 
   demoButton.addEventListener("click", () => {
@@ -146,6 +186,9 @@ function attachEvents() {
     updateStartModeUI();
     updatePlanModeUI();
     updatePlanPreview();
+    if (state.currentAccountEmail) {
+      persistCurrentProfileSnapshot(captureFormSnapshot());
+    }
   });
 
   locationButton.addEventListener("click", useBrowserLocation);
@@ -154,6 +197,24 @@ function attachEvents() {
   savePlanButton.addEventListener("click", saveCurrentPlan);
   if (installAppButton) installAppButton.addEventListener("click", handleInstallApp);
   if (downloadGarminDraftButton) downloadGarminDraftButton.addEventListener("click", downloadGarminSyncDraft);
+  if (createAccountForm) createAccountForm.addEventListener("submit", handleCreateAccount);
+  if (loginForm) loginForm.addEventListener("submit", handleLogin);
+  if (reloadProfileButton) reloadProfileButton.addEventListener("click", restoreSavedProfile);
+  if (logoutButton) logoutButton.addEventListener("click", logoutCurrentAccount);
+  if (homeGoPlanButton) {
+    homeGoPlanButton.addEventListener("click", () => {
+      if (state.plan || restoreActivePlan(getCurrentAccount())) {
+        switchView("plan");
+        return;
+      }
+      switchView("profile");
+    });
+  }
+  if (homeGoProfileButton) homeGoProfileButton.addEventListener("click", () => switchView("profile"));
+  if (homeGoArchiveButton) homeGoArchiveButton.addEventListener("click", () => switchView("archive"));
+  navButtons.forEach((button) => {
+    button.addEventListener("click", () => switchView(button.dataset.navView));
+  });
   savedPlansList.addEventListener("click", handleSavedPlanAction);
   closeModalButton.addEventListener("click", closeSessionModal);
   sessionModal.addEventListener("click", (event) => {
@@ -163,6 +224,12 @@ function attachEvents() {
   });
 
   weeklyPlan.addEventListener("click", (event) => {
+    const completionToggle = event.target.closest("[data-complete-session-id]");
+    if (completionToggle) {
+      toggleSessionCompletion(completionToggle.dataset.completeSessionId);
+      return;
+    }
+
     const card = event.target.closest("[data-session-id]");
     if (!card) {
       return;
@@ -177,6 +244,591 @@ function attachEvents() {
       updatePlanPreview();
     });
   });
+}
+
+
+function bootstrapAccountSession() {
+  const storedEmail = normalizeEmail(window.localStorage.getItem(AUTH_SESSION_KEY) || "");
+  if (storedEmail && getAccountByEmail(storedEmail)) {
+    loginAccount(storedEmail, false);
+    return;
+  }
+  showAuthGate();
+}
+
+function handleCreateAccount(event) {
+  event.preventDefault();
+  const data = new FormData(createAccountForm);
+  const name = String(data.get("createName") || "").trim();
+  const email = normalizeEmail(data.get("createEmail") || "");
+  const emailConfirm = normalizeEmail(data.get("createEmailConfirm") || "");
+  const pin = String(data.get("createPin") || "").trim();
+
+  if (!name || !email || !emailConfirm || pin.length < 4) {
+    showAuthFeedback("Inserisci nome, email, conferma email e un PIN locale di almeno 4 cifre.", true);
+    return;
+  }
+
+  if (email !== emailConfirm) {
+    showAuthFeedback("Le due email non coincidono. Controlla e riprova.", true);
+    return;
+  }
+
+  const accounts = getAccounts();
+  if (accounts[email]) {
+    showAuthFeedback("Esiste gia' un account con questa email su questo dispositivo.", true);
+    return;
+  }
+
+  accounts[email] = {
+    email,
+    name,
+    pin,
+    emailVerified: true,
+    verificationMethod: "double-entry-local",
+    verifiedAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    profileSnapshot: null,
+    activePlan: null,
+    savedPlans: [],
+    progress: { completedSessions: {} },
+  };
+
+  persistAccounts(accounts);
+  createAccountForm.reset();
+  loginAccount(email, false);
+  showSaveFeedback(`Account locale creato per ${name}. Mail confermata localmente.`);
+}
+
+
+function handleLogin(event) {
+  event.preventDefault();
+  const data = new FormData(loginForm);
+  const email = normalizeEmail(data.get("loginEmail") || "");
+  const pin = String(data.get("loginPin") || "").trim();
+  const account = getAccountByEmail(email);
+
+  if (!account || account.pin !== pin) {
+    showAuthFeedback("Email o PIN locale non corretti.", true);
+    return;
+  }
+
+  loginForm.reset();
+  loginAccount(email, false);
+  showSaveFeedback(`Bentornata ${account.name}.`);
+}
+
+function loginAccount(email, announce = true) {
+  const normalizedEmail = normalizeEmail(email);
+  const account = getAccountByEmail(normalizedEmail);
+  if (!account) {
+    showAuthGate();
+    return;
+  }
+
+  state.currentAccountEmail = normalizedEmail;
+  window.localStorage.setItem(AUTH_SESSION_KEY, normalizedEmail);
+  showAppShell();
+  resetCurrentPlanState();
+
+  const bestSnapshot = account.activePlan?.formSnapshot || account.profileSnapshot;
+  if (bestSnapshot) {
+    applyFormSnapshot(bestSnapshot);
+  }
+
+  const restoredPlan = restoreActivePlan(account) || restoreFallbackSavedPlan(account);
+  updateAccountStrip(getCurrentAccount() || account);
+  renderSavedPlansLibrary();
+  updateSaveButtonState();
+  renderHomeDashboard();
+  renderDeviceReadiness();
+  switchView(restoredPlan ? "plan" : "home", false);
+
+  if (announce) {
+    showAuthFeedback(`Bentornata ${account.name}.`, false);
+  }
+
+  if (restoredPlan) {
+    showSaveFeedback("Ho riaperto automaticamente il tuo ultimo piano locale.");
+  }
+}
+
+
+function logoutCurrentAccount() {
+  window.localStorage.removeItem(AUTH_SESSION_KEY);
+  state.currentAccountEmail = null;
+  showAuthGate();
+  resetCurrentPlanState();
+  showAuthFeedback("Sessione locale chiusa.", false);
+}
+
+function showAuthGate() {
+  if (authGate) authGate.classList.remove("hidden");
+  if (appShell) appShell.classList.add("hidden");
+  if (accountStrip) accountStrip.classList.add("hidden");
+}
+
+function showAppShell() {
+  if (authGate) authGate.classList.add("hidden");
+  if (appShell) appShell.classList.remove("hidden");
+  if (accountStrip) accountStrip.classList.remove("hidden");
+}
+
+function resetCurrentPlanState() {
+  state.plan = null;
+  state.currentWeekIndex = 0;
+  state.currentSavedPlanId = null;
+  state.sessionLookup = new Map();
+  results.classList.add("hidden");
+  emptyState.classList.remove("hidden");
+  summaryCards.innerHTML = "";
+  coachNote.innerHTML = "";
+  cycleSummary.innerHTML = "";
+  weekIndicator.innerHTML = "";
+  weeklyPlan.innerHTML = "";
+  routeSuggestions.innerHTML = "";
+  closeSessionModal();
+  updateSaveButtonState();
+  renderDeviceReadiness();
+  renderHomeDashboard();
+}
+
+
+function restoreSavedProfile() {
+  const account = getCurrentAccount();
+  if (!account?.profileSnapshot) {
+    showSaveFeedback("Per questo account non c'e' ancora un profilo salvato da ricaricare.");
+    return;
+  }
+
+  applyFormSnapshot(account.profileSnapshot);
+  showSaveFeedback("Ho ricaricato i dati salvati del tuo profilo atleta.");
+}
+
+function updateAccountStrip(account) {
+  if (!accountName || !accountCopy) {
+    return;
+  }
+
+  accountName.textContent = account.name;
+  const updatedLabel = account.updatedAt ? formatSavedAt(account.updatedAt) : "oggi";
+  const savedCount = Array.isArray(account.savedPlans) ? account.savedPlans.length : 0;
+  accountCopy.textContent = `${account.email} · ${buildEmailVerificationLabel(account)} · ${savedCount} piani in archivio · ultimo aggiornamento ${updatedLabel}.`;
+}
+
+
+function showAuthFeedback(message, isError = false) {
+  if (!authFeedback) {
+    return;
+  }
+
+  authFeedback.textContent = message;
+  authFeedback.dataset.state = isError ? "error" : "ok";
+
+  if (state.authFeedbackTimeoutId) {
+    window.clearTimeout(state.authFeedbackTimeoutId);
+  }
+
+  state.authFeedbackTimeoutId = window.setTimeout(() => {
+    authFeedback.textContent = "";
+    authFeedback.dataset.state = "";
+  }, 4200);
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getAccounts() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(ACCOUNTS_STORAGE_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function persistAccounts(accounts) {
+  try {
+    window.localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(accounts));
+  } catch (error) {
+    window.alert("Non sono riuscita a salvare l'account locale. Controlla lo storage del browser.");
+  }
+}
+
+function getAccountByEmail(email) {
+  return getAccounts()[normalizeEmail(email)] || null;
+}
+
+function getCurrentAccount() {
+  if (!state.currentAccountEmail) {
+    return null;
+  }
+  return getAccountByEmail(state.currentAccountEmail);
+}
+
+function updateCurrentAccount(updater) {
+  if (!state.currentAccountEmail) {
+    return null;
+  }
+
+  const accounts = getAccounts();
+  const current = accounts[state.currentAccountEmail];
+  if (!current) {
+    return null;
+  }
+
+  const copy = JSON.parse(JSON.stringify(current));
+  updater(copy);
+  copy.updatedAt = new Date().toISOString();
+  accounts[state.currentAccountEmail] = copy;
+  persistAccounts(accounts);
+  return copy;
+}
+
+function persistCurrentProfileSnapshot(snapshot) {
+  const updated = updateCurrentAccount((account) => {
+    account.profileSnapshot = snapshot;
+    account.savedPlans = Array.isArray(account.savedPlans) ? account.savedPlans : [];
+    account.progress = account.progress || { completedSessions: {} };
+    account.activePlan = account.activePlan || null;
+  });
+
+  if (updated) {
+    updateAccountStrip(updated);
+    renderHomeDashboard();
+  }
+}
+
+
+function getCompletedSessionsMap() {
+  const account = getCurrentAccount();
+  return account?.progress?.completedSessions || {};
+}
+
+function persistCompletedSessionsMap(map) {
+  const updated = updateCurrentAccount((account) => {
+    account.progress = account.progress || {};
+    account.progress.completedSessions = map;
+  });
+
+  if (updated) {
+    updateAccountStrip(updated);
+    renderHomeDashboard();
+  }
+}
+
+function isAccountEmailVerified(account) {
+  return Boolean(account?.emailVerified ?? account?.verifiedAt ?? account?.verificationMethod ?? account?.email);
+}
+
+function buildEmailVerificationLabel(account) {
+  return isAccountEmailVerified(account)
+    ? "mail confermata localmente"
+    : "mail da verificare";
+}
+
+function buildActivePlanLabel(plan) {
+  return buildSavedPlanLabel(plan);
+}
+
+function switchView(viewName, scrollToTop = true) {
+  const allowedViews = ["home", "plan", "archive", "profile"];
+  const nextView = allowedViews.includes(viewName) ? viewName : "home";
+  state.currentView = nextView;
+
+  navButtons.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.navView === nextView);
+  });
+
+  appViews.forEach((panel) => {
+    panel.classList.toggle("is-active", panel.dataset.appView === nextView);
+  });
+
+  if (scrollToTop) {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+}
+
+function mountPlan(plan, options = {}) {
+  const maxWeekIndex = Math.max(0, plan.weeks.length - 1);
+  state.plan = plan;
+  state.currentWeekIndex = clamp(Number(options.currentWeekIndex ?? 0), 0, maxWeekIndex);
+  state.currentSavedPlanId = options.savedPlanId || null;
+  rebuildSessionLookup(plan);
+  closeSessionModal();
+  renderPlan(plan);
+}
+
+function persistActivePlanState(overrides = {}) {
+  if (!state.currentAccountEmail || !state.plan) {
+    return;
+  }
+
+  const payload = {
+    label: overrides.label || buildActivePlanLabel(state.plan),
+    savedPlanId: Object.prototype.hasOwnProperty.call(overrides, "savedPlanId") ? overrides.savedPlanId : (state.currentSavedPlanId || null),
+    currentWeekIndex: Number.isFinite(overrides.currentWeekIndex) ? overrides.currentWeekIndex : state.currentWeekIndex,
+    updatedAt: new Date().toISOString(),
+    formSnapshot: overrides.formSnapshot || captureFormSnapshot(),
+    plan: JSON.parse(JSON.stringify(state.plan)),
+  };
+
+  const updated = updateCurrentAccount((account) => {
+    account.activePlan = payload;
+    account.savedPlans = Array.isArray(account.savedPlans) ? account.savedPlans : [];
+    account.progress = account.progress || { completedSessions: {} };
+  });
+
+  if (updated) {
+    updateAccountStrip(updated);
+    renderHomeDashboard();
+  }
+}
+
+function restoreActivePlan(account) {
+  const payload = account?.activePlan;
+  if (!payload?.plan) {
+    return false;
+  }
+
+  try {
+    const plan = hydrateStoredPlan(payload.plan);
+    mountPlan(plan, {
+      savedPlanId: payload.savedPlanId || null,
+      currentWeekIndex: payload.currentWeekIndex || 0,
+    });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function restoreFallbackSavedPlan(account) {
+  const record = Array.isArray(account?.savedPlans) ? account.savedPlans[0] : null;
+  if (!record?.plan) {
+    return false;
+  }
+
+  try {
+    if (record.formSnapshot) {
+      applyFormSnapshot(record.formSnapshot);
+    }
+    const plan = hydrateStoredPlan(record.plan);
+    mountPlan(plan, { savedPlanId: record.id, currentWeekIndex: 0 });
+    persistActivePlanState({
+      label: record.label,
+      savedPlanId: record.id,
+      currentWeekIndex: 0,
+      formSnapshot: record.formSnapshot || captureFormSnapshot(),
+    });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function renderHomeDashboard() {
+  if (!homeWelcomeHeading || !homeAccountSummary || !homeActivePlan) {
+    return;
+  }
+
+  const account = getCurrentAccount();
+  if (!account) {
+    homeWelcomeHeading.textContent = "Benvenuta nel tuo planner";
+    homeAccountSummary.textContent = "Accedi o crea un account per vedere profilo, piano attivo e progressi salvati.";
+    homeActivePlan.innerHTML = '<h3>Nessun piano attivo</h3><p class="dashboard-copy">Quando generi un piano, lo tengo in memoria locale e lo ritrovi al prossimo accesso.</p>';
+    homeEmailStatus.textContent = "La verifica mail apparira' qui dopo la creazione account.";
+    homeLibrarySummary.textContent = "L'archivio piani si attiva appena entri nel tuo account locale.";
+    homeProgressSummary.textContent = "I km completati appariranno qui quando inizierai a spuntare le sessioni.";
+    if (profileAccountStatus) {
+      profileAccountStatus.innerHTML = "";
+    }
+    if (homeGoPlanButton) {
+      homeGoPlanButton.disabled = true;
+    }
+    return;
+  }
+
+  const savedPlans = Array.isArray(account.savedPlans) ? account.savedPlans : [];
+  const progressEntries = Object.values(account.progress?.completedSessions || {});
+  const activePlanData = state.plan || account.activePlan?.plan || null;
+  const totalKm = progressEntries.reduce((total, entry) => total + Number(entry.km || 0), 0);
+  const runKm = progressEntries.filter((entry) => entry.sport === "run").reduce((total, entry) => total + Number(entry.km || 0), 0);
+  const bikeKm = progressEntries.filter((entry) => entry.sport === "bike").reduce((total, entry) => total + Number(entry.km || 0), 0);
+  const swimKm = progressEntries.filter((entry) => entry.sport === "swim").reduce((total, entry) => total + Number(entry.km || 0), 0);
+  const updatedLabel = account.updatedAt ? formatSavedAt(account.updatedAt) : formatSavedAt(account.createdAt);
+
+  homeWelcomeHeading.textContent = `Ciao ${account.name}, ecco il tuo hub triathlon.`;
+  homeAccountSummary.textContent = `${account.email} · ${buildEmailVerificationLabel(account)} · ultimo aggiornamento ${updatedLabel}.`;
+
+  if (activePlanData) {
+    const focusLabel = DISTANCE_LABELS[activePlanData.athlete?.focusDistance] || "triathlon";
+    const eventLabel = activePlanData.planConfig?.eventLabel || (account.activePlan?.label || "Piano attivo");
+    const weeks = activePlanData.weeks?.length || 0;
+    const sourceLabel = account.activePlan?.savedPlanId ? "Archiviato e riaperto automaticamente" : "Memorizzato localmente in automatico";
+    homeActivePlan.innerHTML = `
+      <span class="status-tag">${sourceLabel}</span>
+      <h3>${account.activePlan?.label || buildActivePlanLabel(activePlanData)}</h3>
+      <p class="dashboard-copy">${weeks} ${weeks === 1 ? "settimana" : "settimane"} · focus ${focusLabel} · ${eventLabel}.</p>
+    `;
+  } else {
+    homeActivePlan.innerHTML = `
+      <span class="status-tag">Nessun piano attivo</span>
+      <h3>Genera il primo piano</h3>
+      <p class="dashboard-copy">Appena lo crei lo salvo nella memoria locale del tuo account, anche se non lo archivi subito.</p>
+    `;
+  }
+
+  homeEmailStatus.textContent = isAccountEmailVerified(account)
+    ? "Mail confermata localmente con doppio inserimento in fase di creazione account. Per una verifica reale via email servirebbe un backend."
+    : "Mail non ancora confermata.";
+  homeLibrarySummary.textContent = savedPlans.length
+    ? `${savedPlans.length} piani in archivio. Ultimo salvato: ${savedPlans[0].label}.`
+    : "Nessun piano archiviato ancora. Il piano attivo resta comunque in memoria locale.";
+  homeProgressSummary.textContent = progressEntries.length
+    ? `${progressEntries.length} sessioni completate · ${formatGenericKm(totalKm)} totali · run ${formatGenericKm(runKm)} · bike ${formatGenericKm(bikeKm)} · swim ${formatGenericKm(swimKm)}.`
+    : "Ancora nessuna sessione completata. Quando metti le spunte qui comparira' il contatore km.";
+
+  if (homeGoPlanButton) {
+    homeGoPlanButton.disabled = !(state.plan || account.activePlan?.plan);
+  }
+
+  if (profileAccountStatus) {
+    profileAccountStatus.innerHTML = `
+      <article class="status-item">
+        <span class="status-tag">Mail</span>
+        <h4>${buildEmailVerificationLabel(account)}</h4>
+        <p>${homeEmailStatus.textContent}</p>
+      </article>
+      <article class="status-item">
+        <span class="status-tag">Piano attivo</span>
+        <h4>${account.activePlan?.label || "Nessun piano attivo"}</h4>
+        <p>${account.activePlan?.plan ? "Il piano attivo verra' riaperto automaticamente quando rientri nell'account." : "Genera un piano e lo salvero' in memoria locale per ritrovarlo dopo."}</p>
+      </article>
+      <article class="status-item">
+        <span class="status-tag">Archivio</span>
+        <h4>${savedPlans.length} ${savedPlans.length === 1 ? "piano" : "piani"}</h4>
+        <p>${savedPlans.length ? "Puoi riaprire, ricaricare o eliminare i piani dalla pagina Archivio." : "Quando vuoi tenere una versione stabile del piano, salvala in archivio."}</p>
+      </article>
+      <article class="status-item">
+        <span class="status-tag">Progressi</span>
+        <h4>${formatGenericKm(totalKm)} completati</h4>
+        <p>${progressEntries.length ? `${progressEntries.length} sessioni segnate come completate sul profilo locale.` : "Le spunte completate saranno salvate insieme al tuo account locale."}</p>
+      </article>
+    `;
+  }
+}
+
+
+function isSessionCompleted(sessionId) {
+  return Boolean(getCompletedSessionsMap()[sessionId]);
+}
+
+function toggleSessionCompletion(sessionId) {
+  const session = state.sessionLookup.get(sessionId);
+  if (!session) {
+    return;
+  }
+
+  const map = { ...getCompletedSessionsMap() };
+  if (map[sessionId]) {
+    delete map[sessionId];
+  } else {
+    map[sessionId] = {
+      km: session.distanceKm,
+      sport: session.sport,
+      title: session.title,
+      date: formatDateInput(session.date),
+      completedAt: new Date().toISOString(),
+    };
+  }
+
+  persistCompletedSessionsMap(map);
+
+  if (state.plan) {
+    renderSummary(state.plan);
+    renderWeekState();
+  }
+
+  if (!sessionModal.classList.contains("hidden")) {
+    openSessionModal(sessionId);
+  }
+}
+
+function buildPlanProgressSummary(plan) {
+  const progressMap = getCompletedSessionsMap();
+  const sessions = plan.weeks.flatMap((week) => flattenWeekSessions(week));
+  const summary = {
+    totalSessions: sessions.length,
+    completedSessions: 0,
+    currentPlanKm: 0,
+    accountKm: 0,
+    currentPlanBySport: { swim: 0, bike: 0, run: 0 },
+    accountBySport: { swim: 0, bike: 0, run: 0 },
+  };
+
+  Object.values(progressMap).forEach((entry) => {
+    const km = Number(entry.km || 0);
+    summary.accountKm += km;
+    if (summary.accountBySport[entry.sport] !== undefined) {
+      summary.accountBySport[entry.sport] += km;
+    }
+  });
+
+  sessions.forEach((session) => {
+    const completed = progressMap[session.id];
+    if (!completed) {
+      return;
+    }
+    const km = Number(completed.km || session.distanceKm || 0);
+    summary.completedSessions += 1;
+    summary.currentPlanKm += km;
+    summary.currentPlanBySport[session.sport] += km;
+  });
+
+  return summary;
+}
+
+function buildWeekCompletionStats(week) {
+  const progressMap = getCompletedSessionsMap();
+  const sessions = flattenWeekSessions(week);
+  return sessions.reduce((summary, session) => {
+    if (progressMap[session.id]) {
+      summary.completedSessions += 1;
+      summary.completedKm += Number(progressMap[session.id].km || session.distanceKm || 0);
+    }
+    summary.totalSessions += 1;
+    return summary;
+  }, { completedSessions: 0, totalSessions: 0, completedKm: 0 });
+}
+
+function buildWeekIssuesMarkup(week) {
+  if (!week.unassigned?.length) {
+    return "";
+  }
+
+  return `
+    <article class="alert-card">
+      <h4>Sessioni non inserite automaticamente</h4>
+      <ul class="alert-list">
+        ${week.unassigned.map((item) => `<li><strong>${item.title}</strong>: ${item.reason}</li>`).join("")}
+      </ul>
+    </article>
+  `;
+}
+
+function buildUnassignedIssue(blueprint) {
+  const title = SESSION_LIBRARY[blueprint.sport][blueprint.type]?.title || blueprint.type;
+  return {
+    id: blueprint.id,
+    sport: blueprint.sport,
+    title,
+    reason: ["bike", "run"].includes(blueprint.sport)
+      ? "Nessuna finestra completamente in luce abbastanza lunga: se tramonta, la seduta non viene spinta oltre il tramonto."
+      : "Nessuna finestra compatibile con disponibilita', doppie giornate e sport gia' presenti nello stesso giorno.",
+  };
 }
 
 function buildAvailabilityRows() {
@@ -602,6 +1254,7 @@ function buildWeekSchedule(athlete, performance, planConfig, weekStart, weekInde
   }));
 
   const totals = computeWeekTotals(days);
+  const unassigned = blueprints.filter((blueprint) => !assignedByBlueprint[blueprint.id]).map(buildUnassignedIssue);
 
   return {
     weekIndex,
@@ -613,6 +1266,7 @@ function buildWeekSchedule(athlete, performance, planConfig, weekStart, weekInde
     weekHours,
     weeklyTargets,
     totals,
+    unassigned,
     days,
   };
 }
@@ -845,18 +1499,13 @@ function pickWindowForSession(day, sport, requiredMinutes) {
     return null;
   }
 
-  const fittingWindows = windows.filter((window) => windowDuration(window) >= requiredMinutes + 5);
-  const daylightPreferred = chooseDaylightWindow(fittingWindows, day.daylight, sport);
-  if (daylightPreferred) {
-    return daylightPreferred;
-  }
-  if (fittingWindows[0]) {
-    return fittingWindows.sort((left, right) => windowDuration(right) - windowDuration(left))[0];
+  if (["bike", "run"].includes(sport)) {
+    return chooseDaylightWindow(windows, day.daylight, sport, requiredMinutes);
   }
 
-  const partialDaylight = chooseDaylightWindow(windows, day.daylight, sport);
-  if (partialDaylight) {
-    return partialDaylight;
+  const fittingWindows = windows.filter((window) => windowDuration(window) >= requiredMinutes + 5);
+  if (fittingWindows.length) {
+    return fittingWindows.sort((left, right) => windowDuration(right) - windowDuration(left))[0];
   }
 
   return windows.sort((left, right) => windowDuration(right) - windowDuration(left))[0] || null;
@@ -873,7 +1522,7 @@ function materializeSession(blueprint, day, chosenWindow, athlete, performance, 
   const endTime = addMinutesToTime(chosenWindow.start, estimatedMinutes);
   const paceCue = resolvePaceCue(blueprint.sport, blueprint.type, performance);
   const structure = buildWorkoutStructure(blueprint.sport, blueprint.type, distanceKm, performance, weekVariation);
-  const environment = resolveEnvironment(blueprint.sport, chosenWindow, day.daylight);
+  const environment = resolveEnvironment(blueprint.sport);
   const whereToGo = resolveLocationHint(blueprint.sport, blueprint.type, athlete.city, environment, distanceKm);
   const comments = buildCoachComment(blueprint.sport, blueprint.type, phase, shortened, weekVariation);
   const approach = buildApproachNote(blueprint.sport, blueprint.type, blueprint.longSession);
@@ -925,7 +1574,9 @@ function renderPlan(plan) {
   renderWeekState();
   updateSaveButtonState();
   renderSavedPlansLibrary();
+  renderHomeDashboard();
 }
+
 
 function renderDeviceReadiness(plan = state.plan) {
   if (!installAppButton || !downloadGarminDraftButton || !installHint || !garminStatus) {
@@ -957,11 +1608,19 @@ function renderDeviceReadiness(plan = state.plan) {
 }
 
 function updateSaveButtonState() {
-  savePlanButton.disabled = !state.plan;
+  savePlanButton.disabled = !state.plan || !state.currentAccountEmail;
 }
 
 function renderSavedPlansLibrary() {
+  if (!state.currentAccountEmail) {
+    savedPlansEmpty.classList.remove("hidden");
+    savedPlansEmpty.textContent = "Accedi al tuo account locale per vedere l'archivio dei piani salvati.";
+    savedPlansList.innerHTML = "";
+    return;
+  }
+
   const savedPlans = getSavedPlans();
+  savedPlansEmpty.textContent = "Nessun piano salvato per ora. Generane uno e usa il pulsante di salvataggio per poterlo consultare in seguito.";
   savedPlansEmpty.classList.toggle("hidden", savedPlans.length > 0);
 
   savedPlansList.innerHTML = savedPlans
@@ -985,7 +1644,7 @@ function renderSavedPlansLibrary() {
 }
 
 function saveCurrentPlan() {
-  if (!state.plan) {
+  if (!state.plan || !state.currentAccountEmail) {
     return;
   }
 
@@ -998,21 +1657,30 @@ function saveCurrentPlan() {
 
   const label = chosenLabel.trim() || defaultLabel;
   const savedPlans = getSavedPlans();
+  const formSnapshot = captureFormSnapshot();
   const record = {
     id: window.crypto?.randomUUID ? window.crypto.randomUUID() : `plan-${Date.now()}`,
     label,
     savedAt: new Date().toISOString(),
     summary: buildSavedPlanSummary(state.plan),
-    formSnapshot: captureFormSnapshot(),
+    formSnapshot,
     plan: JSON.parse(JSON.stringify(state.plan)),
   };
 
   savedPlans.unshift(record);
   persistSavedPlans(savedPlans.slice(0, 25));
+  persistCurrentProfileSnapshot(formSnapshot);
   state.currentSavedPlanId = record.id;
+  persistActivePlanState({
+    label,
+    savedPlanId: record.id,
+    formSnapshot,
+  });
   renderSavedPlansLibrary();
-  showSaveFeedback(`Piano salvato come "${label}".`);
+  renderHomeDashboard();
+  showSaveFeedback(`Piano salvato in archivio come "${label}".`);
 }
+
 
 function handleSavedPlanAction(event) {
   const button = event.target.closest("[data-saved-action]");
@@ -1050,15 +1718,21 @@ function openSavedPlan(planId) {
     return;
   }
 
+  if (record.formSnapshot) {
+    applyFormSnapshot(record.formSnapshot);
+  }
   const plan = hydrateStoredPlan(record.plan);
-  state.plan = plan;
-  state.currentWeekIndex = 0;
-  state.currentSavedPlanId = record.id;
-  rebuildSessionLookup(plan);
-  closeSessionModal();
-  renderPlan(plan);
+  mountPlan(plan, { savedPlanId: record.id, currentWeekIndex: 0 });
+  persistActivePlanState({
+    label: record.label,
+    savedPlanId: record.id,
+    currentWeekIndex: 0,
+    formSnapshot: record.formSnapshot || captureFormSnapshot(),
+  });
+  switchView("plan");
   showSaveFeedback(`Hai aperto il piano salvato "${record.label}".`);
 }
+
 
 function loadSavedPlanIntoForm(planId) {
   const record = getSavedPlans().find((item) => item.id === planId);
@@ -1068,10 +1742,14 @@ function loadSavedPlanIntoForm(planId) {
   }
 
   applyFormSnapshot(record.formSnapshot);
+  persistCurrentProfileSnapshot(record.formSnapshot);
   state.currentSavedPlanId = record.id;
   renderSavedPlansLibrary();
-  showSaveFeedback(`Ho ricaricato nel form i dati di "${record.label}".`);
+  renderHomeDashboard();
+  switchView("profile");
+  showSaveFeedback(`Ho ricaricato nel profilo i dati di "${record.label}".`);
 }
+
 
 function deleteSavedPlan(planId) {
   const savedPlans = getSavedPlans();
@@ -1090,11 +1768,16 @@ function deleteSavedPlan(planId) {
 
   if (state.currentSavedPlanId === planId) {
     state.currentSavedPlanId = null;
+    if (state.plan) {
+      persistActivePlanState({ savedPlanId: null });
+    }
   }
 
   renderSavedPlansLibrary();
+  renderHomeDashboard();
   showSaveFeedback(`Piano eliminato: "${record.label}".`);
 }
+
 
 function buildSavedPlanLabel(plan) {
   const athleteName = plan.athlete.fullName || "Atleta";
@@ -1162,20 +1845,26 @@ function hydrateStoredPlan(storedPlan) {
 }
 
 function getSavedPlans() {
-  try {
-    return JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "[]");
-  } catch (error) {
-    return [];
-  }
+  const account = getCurrentAccount();
+  return Array.isArray(account?.savedPlans) ? account.savedPlans : [];
 }
 
 function persistSavedPlans(savedPlans) {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(savedPlans));
-  } catch (error) {
+  const updated = updateCurrentAccount((account) => {
+    account.savedPlans = savedPlans;
+    account.progress = account.progress || { completedSessions: {} };
+    account.activePlan = account.activePlan || null;
+  });
+
+  if (!updated) {
     window.alert("Non sono riuscita a salvare il piano nel browser. Controlla che lo storage locale sia disponibile.");
+    return;
   }
+
+  updateAccountStrip(updated);
+  renderHomeDashboard();
 }
+
 
 function showSaveFeedback(message) {
   saveFeedback.textContent = message;
@@ -1195,11 +1884,16 @@ function formatSavedAt(value) {
   });
 }
 
+function formatGenericKm(distanceKm) {
+  return `${Number(distanceKm || 0).toFixed(1).replace(".0", "")} km`;
+}
+
 function renderSummary(plan) {
   const bmi = plan.athlete.heightCm && plan.athlete.weightKg
     ? (plan.athlete.weightKg / ((plan.athlete.heightCm / 100) ** 2)).toFixed(1)
     : null;
   const avg = averageWeekTotals(plan.weeks);
+  const progress = buildPlanProgressSummary(plan);
   const cards = [
     {
       title: "Ciclo programma",
@@ -1219,6 +1913,10 @@ function renderSummary(plan) {
     {
       title: "Vincoli atleta",
       body: `${plan.athlete.city || "Base non specificata"}${bmi ? ` · BMI ${bmi}` : ""}${plan.athlete.constraints ? ` · ${plan.athlete.constraints}` : ""}.`,
+    },
+    {
+      title: "Progresso",
+      body: `${progress.completedSessions}/${progress.totalSessions} sessioni completate · ${formatGenericKm(progress.currentPlanKm)} nel piano attuale. Totale profilo: ${formatGenericKm(progress.accountKm)} · run ${formatGenericKm(progress.accountBySport.run)} · bike ${formatGenericKm(progress.accountBySport.bike)} · swim ${formatGenericKm(progress.accountBySport.swim)}.`,
     },
   ];
 
@@ -1253,10 +1951,13 @@ function renderWeekState() {
 
   const week = state.plan.weeks[state.currentWeekIndex];
   const totalWeeks = state.plan.weeks.length;
+  const unassignedCopy = week.unassigned?.length
+    ? ` ${week.unassigned.length} sedute non sono state assegnate per luce o disponibilita'.`
+    : "";
   cycleSummary.innerHTML = `
     <p>
       <strong>${week.phase.name} · ${week.variation.label}.</strong> ${week.phase.detail}
-      ${state.plan.planConfig.planMode === "race" ? ` Mancano ${week.phase.weeksToRace} settimane alla gara.` : ` Settimana ${state.currentWeekIndex + 1} del ciclo rolling.`}
+      ${state.plan.planConfig.planMode === "race" ? ` Mancano ${week.phase.weeksToRace} settimane alla gara.` : ` Settimana ${state.currentWeekIndex + 1} del ciclo rolling.`}${unassignedCopy}
     </p>
   `;
 
@@ -1275,6 +1976,7 @@ function renderWeekState() {
 }
 
 function renderWeek(week) {
+  const weekProgress = buildWeekCompletionStats(week);
   const daySections = week.days
     .map((day) => {
       if (!day.sessions.length) {
@@ -1293,24 +1995,33 @@ function renderWeek(week) {
       }
 
       const sessionCards = day.sessions
-        .map((session) => `
-          <button type="button" class="session-card" data-session-id="${session.id}">
-            <div class="session-topline">
-              <span class="session-day">${session.startTime} - ${session.endTime}</span>
-              <span class="session-sport">${session.sport}</span>
-            </div>
-            <div>
-              <h4>${session.title}</h4>
-              <p>${session.shortDescription}</p>
-            </div>
-            <div class="session-meta">
-              <span class="meta-pill">${formatDistance(session.distanceKm, session.sport)}</span>
-              <span class="meta-pill">${formatDuration(session.estimatedMinutes)}</span>
-              <span class="meta-pill">${session.paceCue}</span>
-            </div>
-            <span class="session-open">Apri specifico</span>
-          </button>
-        `)
+        .map((session) => {
+          const completed = isSessionCompleted(session.id);
+          return `
+            <article class="session-card ${completed ? "is-completed" : ""}" data-session-id="${session.id}">
+              <div class="session-topline">
+                <span class="session-day">${session.startTime} - ${session.endTime}</span>
+                <div class="session-topline-actions">
+                  <span class="session-sport">${session.sport}</span>
+                  <label class="completion-check" data-complete-session-id="${session.id}">
+                    <input type="checkbox" ${completed ? "checked" : ""} />
+                    <span>${completed ? "Completata" : "Completa"}</span>
+                  </label>
+                </div>
+              </div>
+              <div>
+                <h4>${session.title}</h4>
+                <p>${session.shortDescription}</p>
+              </div>
+              <div class="session-meta">
+                <span class="meta-pill">${formatDistance(session.distanceKm, session.sport)}</span>
+                <span class="meta-pill">${formatDuration(session.estimatedMinutes)}</span>
+                <span class="meta-pill">${session.paceCue}</span>
+              </div>
+              <span class="session-open">${completed ? "Apri specifico e rivedi la seduta" : "Apri specifico"}</span>
+            </article>
+          `;
+        })
         .join("");
 
       return `
@@ -1335,8 +2046,12 @@ function renderWeek(week) {
           <h3>${week.label}</h3>
           <p>${week.startLabel} - ${week.endLabel} · ${week.phase.name} · ${week.variation.label}</p>
         </div>
-        <span class="week-badge">${formatDistance(week.totals.swimKm, "swim")} swim · ${formatDistance(week.totals.bikeKm, "bike")} bike · ${formatDistance(week.totals.runKm, "run")} run</span>
+        <div class="week-header-meta">
+          <span class="week-badge">${formatDistance(week.totals.swimKm, "swim")} swim · ${formatDistance(week.totals.bikeKm, "bike")} bike · ${formatDistance(week.totals.runKm, "run")} run</span>
+          <span class="week-progress-badge">${weekProgress.completedSessions}/${weekProgress.totalSessions} completate · ${formatGenericKm(weekProgress.completedKm)} fatti</span>
+        </div>
       </div>
+      ${buildWeekIssuesMarkup(week)}
       <div class="day-sections">${daySections}</div>
     </section>
   `;
@@ -1368,7 +2083,7 @@ function buildWeekRoutes(week) {
       if (session.sport === "bike") {
         return {
           title: `${session.title} · ${session.dayLabel}`,
-          body: `Route consigliata: ${formatDistance(session.distanceKm, "bike")} su percorso ${session.type === "hills" ? "con salita regolare o trainer in resistenza" : "scorrevole con poco traffico"}. Partenza ${session.startTime}, luce ${session.daylightLabel}. Porta fuel ogni 15-20 km.`,
+          body: `Route consigliata: ${formatDistance(session.distanceKm, "bike")} su percorso ${session.type === "hills" ? "con salita regolare e poco traffico" : "scorrevole con poco traffico"}. Partenza ${session.startTime}, luce ${session.daylightLabel}. Porta fuel ogni 15-20 km.`,
         };
       }
 
@@ -1385,7 +2100,9 @@ function shiftWeek(direction) {
   }
   state.currentWeekIndex = clamp(state.currentWeekIndex + direction, 0, state.plan.weeks.length - 1);
   renderWeekState();
+  persistActivePlanState({ currentWeekIndex: state.currentWeekIndex });
 }
+
 
 function rebuildSessionLookup(plan) {
   state.sessionLookup = new Map();
@@ -1404,6 +2121,7 @@ function openSessionModal(sessionId) {
     return;
   }
 
+  const completed = isSessionCompleted(session.id);
   sessionDetail.innerHTML = `
     <div class="session-detail-card session-detail-header">
       <div class="session-topline">
@@ -1419,6 +2137,7 @@ function openSessionModal(sessionId) {
         <div class="detail-badge"><span>Tempo stimato</span><strong>${formatDuration(session.estimatedMinutes)}</strong></div>
         <div class="detail-badge"><span>Ritmo</span><strong>${session.paceCue}</strong></div>
         <div class="detail-badge"><span>Fase</span><strong>${session.phaseName}</strong></div>
+        <div class="detail-badge"><span>Stato</span><strong>${completed ? "Completata" : "Da completare"}</strong></div>
       </div>
     </div>
 
@@ -1764,39 +2483,48 @@ function buildDayWindows(day, earliestTraining, latestTraining) {
   return dedupeWindows(windows);
 }
 
-function chooseDaylightWindow(windows, daylight, sport) {
+function chooseDaylightWindow(windows, daylight, sport, requiredMinutes) {
   if (!daylight || !["bike", "run"].includes(sport)) {
-    return windows[0] || null;
+    return null;
   }
 
   const sunrise = timeToMinutes(daylight.sunrise);
   const sunset = timeToMinutes(daylight.sunset);
+  const minimumMinutes = Math.max(25, Math.round(requiredMinutes * 0.72) + 5);
+  const daylightWindows = windows
+    .map((window) => {
+      const start = Math.max(timeToMinutes(window.start), sunrise);
+      const end = Math.min(timeToMinutes(window.end), sunset);
+      if (end <= start) {
+        return null;
+      }
+      return {
+        ...window,
+        start: minutesToTime(start),
+        end: minutesToTime(end),
+      };
+    })
+    .filter(Boolean);
 
-  return windows.find((window) => {
-    const start = timeToMinutes(window.start);
-    const end = timeToMinutes(window.end);
-    return start >= sunrise && end <= sunset;
-  }) || windows.find((window) => {
-    const start = timeToMinutes(window.start);
-    const end = timeToMinutes(window.end);
-    return end > sunrise && start < sunset;
-  }) || null;
+  const fullFit = daylightWindows
+    .filter((window) => windowDuration(window) >= requiredMinutes + 5)
+    .sort((left, right) => windowDuration(right) - windowDuration(left))[0];
+
+  if (fullFit) {
+    return fullFit;
+  }
+
+  return daylightWindows
+    .filter((window) => windowDuration(window) >= minimumMinutes)
+    .sort((left, right) => windowDuration(right) - windowDuration(left))[0] || null;
 }
 
-function resolveEnvironment(sport, window, daylight) {
+function resolveEnvironment(sport) {
   if (sport === "swim") {
     return "Piscina";
   }
-
-  const daylightWindow = daylight && ["bike", "run"].includes(sport)
-    ? chooseDaylightWindow([window], daylight, sport)
-    : null;
-
-  if (sport === "bike") {
-    return daylightWindow ? "Outdoor in luce" : "Trainer / commute protetto";
-  }
-  if (sport === "run") {
-    return daylightWindow ? "Outdoor in luce" : "Tapis roulant o percorso illuminato";
+  if (["bike", "run"].includes(sport)) {
+    return "Outdoor in luce";
   }
   return "Indoor";
 }
