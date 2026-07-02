@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Triathlon Planner icon</title>
+  <desc id="desc">Rounded square icon with TRI lettering and triathlon-inspired lines.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1f2f2b" />
+      <stop offset="55%" stop-color="#2f7f73" />
+      <stop offset="100%" stop-color="#d26436" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <circle cx="256" cy="188" r="98" fill="#fff7ee" opacity="0.18" />
+  <path d="M118 344c34-18 64-27 90-27 28 0 57 11 88 33 27 19 51 29 74 29 18 0 35-5 52-16" fill="none" stroke="#fff7ee" stroke-width="18" stroke-linecap="round" opacity="0.92" />
+  <path d="M134 388c29-14 54-21 76-21 28 0 55 10 82 29 29 21 58 31 87 31 12 0 24-2 37-6" fill="none" stroke="#fff7ee" stroke-width="12" stroke-linecap="round" opacity="0.66" />
+  <text x="256" y="255" text-anchor="middle" font-family="Avenir Next, Trebuchet MS, sans-serif" font-size="116" font-weight="800" fill="#fff7ee">TRI</text>
+  <circle cx="180" cy="146" r="14" fill="#fff7ee" />
+  <circle cx="332" cy="146" r="14" fill="#fff7ee" />
+</svg>

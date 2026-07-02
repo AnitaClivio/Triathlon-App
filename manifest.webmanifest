@@ -1,0 +1,18 @@
+{
+  "name": "Triathlon Planner",
+  "short_name": "Tri Planner",
+  "description": "Programma il triathlon attorno a vita, lavoro e obiettivi reali.",
+  "lang": "it",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f4efe6",
+  "theme_color": "#1f2f2b",
+  "icons": [
+    {
+      "src": "./icons/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
